@@ -1,0 +1,189 @@
+-- Color name - RGBA map
+local COLOR_MAP = {
+	Red    = {1, 0, 0, 1},
+	Green  = {0, 1, 0, 1},
+	Blue   = {0, 0, 1, 1},
+	White  = {1, 1, 1, 1},
+	Black  = {0, 0, 0, 1},
+	Orange = {1, 0.5, 0, 1},
+}
+
+local ALERT   = 33       -- Red
+local WARNING = 48       -- Orange
+local INFO    = 84       -- Light Blue
+local STATUS  = 93       -- Blue
+-- =============================================================================
+-- PART 1: VARIABLES AND SETUP
+-- =============================================================================
+
+local window
+local enableBandageHealingCheckbox
+local enableCollectArrowsCheckbox
+local enableCheckWeightCheckbox
+local startButton
+local statusTitleLabel, statusLabel
+
+local status = 'Not Started'
+local enableBandageHealing = true
+local enableCollectArrows = true
+local enableCheckWeight = true
+local startButtonClicked = false
+local stopButtonClicked = true
+local runScript = false
+
+local healingActive = false
+local lastHealTime = 0
+local healCooldown = 12500
+
+local WeightBuffer = 25
+itemsToCollect = {
+    0x0F3F -- Arrow
+}
+
+local offSetY = 0
+
+function setOffsetY(value)
+    offSetY = offSetY + value
+    return offSetY
+end
+
+local function updateStatus(message, colorName)
+	local rgba = COLOR_MAP[colorName] or COLOR_MAP.White
+	status = message
+	statusLabel:SetText(message)
+	statusLabel:SetColor(table.unpack(rgba))
+end
+
+-- =============================================================================
+-- PART 2: WINDOW AND CONTROLS
+-- =============================================================================
+
+UI.DestroyAllWindows()
+window = UI.CreateWindow('archerCompanion', "Proximo's Archer Companion v1.0")
+window:SetPosition(1475, 5)
+window:SetSize(250, 200)
+
+
+window:AddLabel(10, setOffsetY(20), 'Settings'):SetColor(0.2, 0.8, 1, 1)
+
+enableBandageHealingCheckbox = window:AddCheckbox(10, setOffsetY(20), 'Auto Bandage Heal', false)
+enableBandageHealingCheckbox:SetChecked(true)
+
+enableCollectArrowsCheckbox = window:AddCheckbox(10, setOffsetY(20), 'Collect Arrows', false)
+enableCollectArrowsCheckbox:SetChecked(true)
+enableCheckWeightCheckbox = window:AddCheckbox(10, setOffsetY(20), 'Notify Weight', false)
+enableCheckWeightCheckbox:SetChecked(true)
+
+
+startButton = window:AddButton(10, setOffsetY(30), 'Start', 140, 30)
+stopButton = window:AddButton(10, setOffsetY(0), 'Stop', 140, 30)
+stopButton:SetVisible(false)
+
+
+statusTitleLabel = window:AddLabel(10, setOffsetY(40), 'Status:')
+statusTitleLabel:SetColor(1,1,1,1)
+statusLabel = window:AddLabel(70, setOffsetY(0), status)
+statusLabel:SetColor(1,1,1,1)
+
+-- =============================================================================
+-- PART 3: EVENT HANDLERS
+-- =============================================================================
+
+startButton:SetOnClick(function()
+	startButtonClicked = true
+    startButton:SetVisible(false)
+    stopButton:SetVisible(true)
+    runScript = true
+    updateStatus('Running..', 'Orange')
+end)
+
+stopButton:SetOnClick(function()
+	stopButtonClicked = true
+    stopButton:SetVisible(false)
+    startButton:SetVisible(true)
+    runScript = false
+    updateStatus('Stopped..', 'Red')
+end)
+
+enableBandageHealingCheckbox:SetOnCheckedChanged(function(c) enableBandageHealing = c end)
+enableCollectArrowsCheckbox:SetOnCheckedChanged(function(c) enableCollectArrows = c end)
+enableCheckWeightCheckbox:SetOnCheckedChanged(function(c) enableCheckWeight = c end)
+
+-- =============================================================================
+-- PART 4: SUPPORT FUNCTIONS
+-- =============================================================================
+
+local function IsOverweight()
+    if Player.DiffWeight <= 0 then
+        Messages.Overhead("Overweight!", ALERT, Player.Serial)
+        updateStatus('Overweight!', 'Red')
+        return true     
+     elseif Player.DiffWeight <= WeightBuffer then
+        Messages.Overhead("Nearly Overweight", WARNING, Player.Serial)
+        updateStatus('Nearly Overweight', 'Orange')
+        return true    
+    end
+    return false
+end
+
+local function collectArrows()
+	filter = {onground=true, rangemax=2, graphics=itemsToCollect}
+	
+	list = Items.FindByFilter(filter)
+	for index, item in ipairs(list) do
+	    updateStatus('Collecting Arrows', 'Blue')
+	    Player.PickUp(item.Serial, 1000)
+	    Pause(100)
+	    Player.DropInBackpack()
+	    Pause(100)
+	end
+	-- Important Pause for CPU
+	Pause(150)
+    updateStatus('Running..', 'Orange')
+end
+
+Messages.Print("___________________________________", INFO)
+Messages.Print("Archer Companion v1.0", INFO)
+Messages.Print("All Settings are enabled by default", STATUS)
+Messages.Print("___________________________________", INFO)
+
+while true do
+    
+    if runScript then
+         
+        local currentTime = os.time() * 1000
+
+        if enableBandageHealing and healingActive and (currentTime - lastHealTime >= healCooldown) then
+            Messages.Print('deactivate healing')
+            healingActive = false
+        end
+        
+        if enableBandageHealing and not healingActive then
+            if Player.DiffHits > 0 or Player.IsPoisoned then
+                if Player.UseObjectByType(3617) then
+                    if Targeting.WaitForTarget(5000) then
+                        Targeting.TargetSelf()
+                        healingActive = true
+                        lastHealTime = currentTime
+                    end
+                end
+    
+            end
+        end
+        
+        if enableCollectArrows then
+            collectArrows()
+        end
+
+        if enableCheckWeight then
+            IsOverweight()
+        end
+        
+    end
+
+    
+
+     Pause(50)
+   
+end
+
