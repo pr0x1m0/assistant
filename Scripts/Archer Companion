@@ -253,8 +253,7 @@ while true do
                     if Targeting.WaitForTarget(5000) then
                         Targeting.TargetSelf()
                         healingActive = true
-                        lastHealTime = currentTime
-*1000
+                        lastHealTime = currentTime * 1000
                     end
                 end
             end
