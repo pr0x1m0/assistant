@@ -8,10 +8,10 @@ local COLOR_MAP = {
 	Orange = {1, 0.5, 0, 1},
 }
 
-local ALERT   = 33       -- Red
-local WARNING = 48       -- Orange
-local INFO    = 84       -- Light Blue
-local STATUS  = 93       -- Blue
+local ALERT   = 33
+local WARNING = 48
+local INFO    = 84
+local STATUS  = 93
 -- =============================================================================
 -- PART 1: VARIABLES AND SETUP
 -- =============================================================================
@@ -20,20 +20,32 @@ local window
 local enableBandageHealingCheckbox
 local enableCollectArrowsCheckbox
 local enableCheckWeightCheckbox
+local enableSharpshooterCheckbox
+local identifyBagCheckbox
 local startButton
 local statusTitleLabel, statusLabel
+local sharpshooterTitleLabel, sharpshooterLabel
 
 local status = 'Not Started'
 local enableBandageHealing = true
 local enableCollectArrows = true
 local enableCheckWeight = true
+local enableSharpshooter = true
 local startButtonClicked = false
 local stopButtonClicked = true
 local runScript = false
+local startIdentification = false
 
 local healingActive = false
 local lastHealTime = 0
 local healCooldown = 12500
+local playerCoordsPrevious = nil
+local playerCoords = nil
+local standingTime = 0
+local lastMovementTime = 0
+local sharpshooterRate = 0
+local currentTime = 0
+
 
 local WeightBuffer = 25
 itemsToCollect = {
@@ -60,8 +72,8 @@ end
 
 UI.DestroyAllWindows()
 window = UI.CreateWindow('archerCompanion', "Proximo's Archer Companion v1.0")
-window:SetPosition(1475, 5)
-window:SetSize(250, 200)
+window:SetPosition(200, 200)
+window:SetSize(250, 250)
 
 
 window:AddLabel(10, setOffsetY(20), 'Settings'):SetColor(0.2, 0.8, 1, 1)
@@ -73,6 +85,10 @@ enableCollectArrowsCheckbox = window:AddCheckbox(10, setOffsetY(20), 'Collect Ar
 enableCollectArrowsCheckbox:SetChecked(true)
 enableCheckWeightCheckbox = window:AddCheckbox(10, setOffsetY(20), 'Notify Weight', false)
 enableCheckWeightCheckbox:SetChecked(true)
+enableSharpshooterCheckbox = window:AddCheckbox(10, setOffsetY(20), 'Display Sharpshooter', false)
+enableSharpshooterCheckbox:SetChecked(true)
+identifyBagCheckbox = window:AddCheckbox(10, setOffsetY(20), 'Identify Bag', false)
+identifyBagCheckbox:SetChecked(false)
 
 
 startButton = window:AddButton(10, setOffsetY(30), 'Start', 140, 30)
@@ -85,6 +101,10 @@ statusTitleLabel:SetColor(1,1,1,1)
 statusLabel = window:AddLabel(70, setOffsetY(0), status)
 statusLabel:SetColor(1,1,1,1)
 
+sharpshooterTitleLabel = window:AddLabel(10, setOffsetY(20), 'Sharpshooter:')
+sharpshooterTitleLabel:SetColor(1,1,1,1)
+sharpshooterLabel = window:AddLabel(110, setOffsetY(0), sharpshooterRate..'%%')
+sharpshooterLabel:SetColor(1,1,1,1)
 -- =============================================================================
 -- PART 3: EVENT HANDLERS
 -- =============================================================================
@@ -94,6 +114,10 @@ startButton:SetOnClick(function()
     startButton:SetVisible(false)
     stopButton:SetVisible(true)
     runScript = true
+    sharpshooterRate = 0       
+    standingTime = 0
+    lastMovementTime = 0 
+    currentTime = os.time()
     updateStatus('Running..', 'Orange')
 end)
 
@@ -102,13 +126,27 @@ stopButton:SetOnClick(function()
     stopButton:SetVisible(false)
     startButton:SetVisible(true)
     runScript = false
+    sharpshooterRate = 0       
+    standingTime = 0
+    lastMovementTime = 0   
+    currentTime = os.time()
     updateStatus('Stopped..', 'Red')
+    sharpshooterLabel:SetText(sharpshooterRate..'%')
+    sharpshooterLabel:SetColor(1, 1, 1, 1)
 end)
 
 enableBandageHealingCheckbox:SetOnCheckedChanged(function(c) enableBandageHealing = c end)
 enableCollectArrowsCheckbox:SetOnCheckedChanged(function(c) enableCollectArrows = c end)
 enableCheckWeightCheckbox:SetOnCheckedChanged(function(c) enableCheckWeight = c end)
 
+enableSharpshooterCheckbox:SetOnCheckedChanged(function(c) 
+enableSharpshooter = c 
+sharpshooterTitleLabel:SetVisible(c)
+sharpshooterLabel:SetVisible(c)
+end)
+identifyBagCheckbox:SetOnCheckedChanged(
+    function(c) startIdentification = true end
+)
 -- =============================================================================
 -- PART 4: SUPPORT FUNCTIONS
 -- =============================================================================
@@ -137,24 +175,75 @@ local function collectArrows()
 	    Player.DropInBackpack()
 	    Pause(100)
 	end
-	-- Important Pause for CPU
 	Pause(150)
-    updateStatus('Running..', 'Orange')
+end
+
+local function updateSharpshooterLabel(rate)
+    if rate >= 1 then
+        rate = 1
+        sharpshooterLabel:SetColor(0, 1, 0, 1)
+    else
+        sharpshooterLabel:SetColor(1, 1, 1, 1)
+    end
+    rate = rate * 100
+    rate = math.floor(rate)
+    sharpshooterLabel:SetText(rate..'%%')
+end
+
+function identifyBag()
+    updateStatus('Identfying Bag', 'Blue')
+    local items = Items.FindByFilter(
+        { 
+            name = "Unidentified",
+            hues = {0},
+            onground=false
+        }
+    )
+
+    local totalItems = 0
+    local wand = Items.FindByType(3570)
+    for i, item in ipairs(items) do 
+        if item.RootContainer == Player.Serial then
+            if item.Name ~= nil then
+                totalItems = totalItems + 1
+            end
+            while item.Name ~= nil and string.find(item.Name,"Unidentified") do
+                if wand then 
+                Player.UseObject(wand.Serial)
+                else
+                    Skills.Use('Item Identification')
+                end
+                Targeting.WaitForTarget(500) 
+                Targeting.Target(item.Serial) 
+                Pause(1000) 
+                if not string.find(item.Name,"Unidentified") then
+                    Messages.Overhead(item.Name, 89, Player.Serial)
+                end
+            end
+        end 
+    end 
+
+    Messages.Overhead(string.format("Done IDing %d items", totalItems), 64, Player.Serial)
+    identifyBagCheckbox:SetChecked(false)
+    startIdentification = false
 end
 
 Messages.Print("___________________________________", INFO)
-Messages.Print("Archer Companion v1.0", INFO)
+Messages.Print("Proximo's Archer Companion v1.0", INFO)
 Messages.Print("All Settings are enabled by default", STATUS)
 Messages.Print("___________________________________", INFO)
 
 while true do
     
     if runScript then
-         
-        local currentTime = os.time() * 1000
+        updateStatus('Running..', 'Orange')
+        playerCoords = Player.X..'-'..Player.Y..'-'..Player.Z
+        sharpshooterRate = standingTime/10
+        updateSharpshooterLabel(sharpshooterRate)
+ 
+        currentTime = os.time()
 
-        if enableBandageHealing and healingActive and (currentTime - lastHealTime >= healCooldown) then
-            Messages.Print('deactivate healing')
+        if enableBandageHealing and healingActive and ((currentTime*1000) - lastHealTime >= healCooldown) then
             healingActive = false
         end
         
@@ -165,9 +254,9 @@ while true do
                         Targeting.TargetSelf()
                         healingActive = true
                         lastHealTime = currentTime
+*1000
                     end
                 end
-    
             end
         end
         
@@ -178,12 +267,22 @@ while true do
         if enableCheckWeight then
             IsOverweight()
         end
-        
+
+        if enableSharpshooter then
+            if playerCoordsPrevious == playerCoords then
+                standingTime = currentTime - lastMovementTime
+            else
+                lastMovementTime = currentTime
+                playerCoordsPrevious = playerCoords
+            end
+        end
     end
 
+    if startIdentification then
+        identifyBag()
+    end
     
-
-     Pause(50)
+    Pause(50)
    
 end
 
